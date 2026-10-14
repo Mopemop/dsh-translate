@@ -1,0 +1,66 @@
+/* ============================================================================
+ * dsh-translate 卡片样式
+ * ============================================================================
+ *
+ * 约定：
+ *   · 类名一律 dst- 前缀（dsh translate），避免和宿主/其它插件撞车；
+ *   · 颜色只用主题令牌（--dsw-alias-*），这样浅色/深色主题自动跟随，
+ *     不在插件里硬编码任何颜色 —— 浅色主题下硬编码深色底就是"白屏上糊一块黑"；
+ *   · **每条规则写在单行**：构建脚本的 CSS 自检按行判断规则是否完整
+ *     （跨行规则会被判为"不完整的单行规则"而构建失败）。
+ *
+ * 布局要点：
+ *   · .dst-card 是浮层（shell.overlay）里的直接子元素，width 由 JS 按视口夹取后
+ *     以 inline style 给出；这里只提供兜底宽度；
+ *   · .dst-card 必须显式 pointer-events:auto —— 浮层容器是 pointer-events:none，
+ *     忘了这条的话卡片看得见但点不动（复制/关闭全失效）。
+ * ==========================================================================*/
+
+.dst-card { position: fixed; box-sizing: border-box; display: flex; flex-direction: column; width: 340px; max-width: calc(100vw - 16px); pointer-events: auto; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); border: .5px solid var(--dsw-alias-border-l2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .22); font: var(--dsw-font-xxs-12, 12px/1.5 system-ui, sans-serif); }
+.dst-card[data-placement="above"] { box-shadow: 0 -10px 30px rgba(0, 0, 0, .18); }
+
+.dst-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 10px; border-bottom: .5px solid var(--dsw-alias-border-l1); border-radius: 10px 10px 0 0; background: var(--dsw-alias-bg-layer-1); }
+.dst-title { font-weight: 600; }
+.dst-lang { display: inline-flex; align-items: center; gap: 2px; max-width: 98px; padding: 1px 4px; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font: inherit; overflow: hidden; white-space: nowrap; }
+.dst-lang-source { margin-left: auto; }
+.dst-lang:hover { background: var(--dsw-alias-state-idle-primary); color: var(--dsw-alias-label-primary); }
+.dst-lang[data-open="1"] { background: var(--dsw-alias-state-idle-primary); color: var(--dsw-alias-label-primary); }
+.dst-lang-source:not([data-source="auto"]) { color: var(--dsw-alias-brand-primary); }
+.dst-lang-target:not([data-target="zh-CN"]) { color: var(--dsw-alias-brand-primary); }
+.dst-arrow { flex: none; color: var(--dsw-alias-label-secondary); }
+.dst-close { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 14px; line-height: 1; }
+.dst-close:hover { background: var(--dsw-alias-state-idle-primary); color: var(--dsw-alias-label-primary); }
+
+.dst-body { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; max-height: 46vh; overflow: auto; }
+.dst-block { display: flex; flex-direction: column; gap: 3px; }
+.dst-label { color: var(--dsw-alias-label-secondary); font-size: 11px; letter-spacing: .02em; }
+.dst-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.dst-source { max-height: 108px; overflow: auto; color: var(--dsw-alias-label-primary); }
+.dst-target { max-height: 180px; overflow: auto; }
+.dst-target[data-state="loading"] { color: var(--dsw-alias-label-secondary); }
+.dst-target[data-stale="1"] { opacity: .55; }
+.dst-target[data-state="error"] { color: var(--dsw-alias-state-error-primary); }
+.dst-rule { height: .5px; background: var(--dsw-alias-border-l1); }
+
+.dst-foot { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-top: .5px solid var(--dsw-alias-border-l1); border-radius: 0 0 10px 10px; background: var(--dsw-alias-bg-layer-1); }
+.dst-engine { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 2px 5px; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font: inherit; text-align: left; overflow: hidden; white-space: nowrap; }
+.dst-engine:hover { background: var(--dsw-alias-state-idle-primary); color: var(--dsw-alias-label-primary); }
+.dst-engine[data-open="1"] { background: var(--dsw-alias-state-idle-primary); color: var(--dsw-alias-label-primary); }
+.dst-caret { flex: none; font-size: 9px; opacity: .7; }
+.dst-hint { flex: none; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dst-menu { position: absolute; left: 6px; right: 6px; z-index: 3; box-sizing: border-box; max-height: 240px; overflow: auto; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-overlay); box-shadow: 0 10px 28px rgba(0, 0, 0, .24); }
+.dst-menuItem { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 7px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; text-align: left; }
+.dst-menuItem:hover { background: var(--dsw-alias-state-idle-primary); }
+.dst-menuItem[data-current="1"] { color: var(--dsw-alias-brand-primary); }
+.dst-menuLabel { flex: none; }
+.dst-menuCheck { flex: none; }
+.dst-menuHint { flex: 1; min-width: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dst-menu-compact { left: auto; right: auto; width: max-content; min-width: 104px; max-width: 200px; max-height: 216px; padding: 3px; border-radius: 7px; font-size: 11px; }
+.dst-menuItem-compact { gap: 4px; padding: 3px 6px; border-radius: 5px; font-size: 11px; line-height: 1.35; }
+.dst-menuItem-compact .dst-menuLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dst-menuItem-compact .dst-menuCheck { margin-left: auto; font-size: 10px; }
+.dst-copy { flex: none; padding: 3px 9px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 5px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; }
+.dst-retry { flex: none; padding: 3px 9px; border: .5px solid var(--dsw-alias-state-error-primary); border-radius: 5px; background: transparent; color: var(--dsw-alias-state-error-primary); cursor: pointer; font: inherit; }
+.dst-retry:hover { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); }
+.dst-copy:hover:not(:disabled) { background: var(--dsw-alias-state-idle-primary); }
+.dst-copy:disabled { color: var(--dsw-alias-label-secondary); cursor: default; opacity: .55; }

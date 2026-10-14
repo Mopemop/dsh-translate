@@ -1,0 +1,25 @@
+# ============================================================================
+# dsh-translate 的 bundle patch —— 把划词翻译挂进 DSH 配置树
+# ============================================================================
+#
+# 【这是什么】
+#   本插件的挂载声明。DSH 启动时按 dsh.profile.bundles 的顺序叠加各 bundle 的
+#   patch，组成最终配置树；本文件是其中一层。
+#
+# 【工作原理】
+#   - insert：往配置树里加一行插件（entry）
+#   - id 必须与包名一致（插件清单契约按它比对 entryIds），且这一行**不能写行尾注释**
+#   - name: 'dsh-translate' 解析到包入口 lib/index.js（宿主半侧）
+#   - package.json 里声明了 dsh.client 且 exports 有 "./client"，
+#     于是 DSH 的模块系统同时把这个包扫成"浏览器插件"，
+#     向页面提供 /plugins/dsh-translate/client.js
+#
+# 【依赖前提】
+#   宿主半侧只需要 webServer（注册 /dsh-translate/api 路由）。
+#   模型能力、默认模型、会话控制器都是**可选**读取：拿不到就自动降级
+#   （没有 llm 就只剩两家免费引擎；没有 sessionController 就退回全局默认模型）。
+# ============================================================================
+
+- insert:
+    - id: dsh-translate
+      name: 'dsh-translate'

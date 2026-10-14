@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560" font-family="system-ui, 'Segoe UI', sans-serif">
+  <rect width="900" height="560" fill="#f6f7f9"/>
+
+  <!-- 窗口外框 -->
+  <rect x="20" y="20" width="860" height="520" rx="10" fill="#ffffff" stroke="#d6d9de"/>
+  <line x1="220" y1="20" x2="220" y2="540" stroke="#e6e8ec"/>
+  <line x1="580" y1="20" x2="580" y2="540" stroke="#e6e8ec"/>
+
+  <!-- 左栏 -->
+  <text x="44" y="52" font-size="13" fill="#8a9099">会话列表</text>
+  <rect x="40" y="66" width="150" height="10" rx="5" fill="#eceef1"/>
+  <rect x="40" y="88" width="120" height="10" rx="5" fill="#eceef1"/>
+  <rect x="40" y="110" width="136" height="10" rx="5" fill="#eceef1"/>
+
+  <!-- 对话区 -->
+  <text x="248" y="52" font-size="13" fill="#8a9099">对话区（划词不弹卡片）</text>
+  <rect x="248" y="66" width="300" height="10" rx="5" fill="#eceef1"/>
+  <rect x="248" y="88" width="260" height="10" rx="5" fill="#eceef1"/>
+  <rect x="248" y="110" width="286" height="10" rx="5" fill="#eceef1"/>
+
+  <!-- 右栏：文档预览 -->
+  <rect x="581" y="21" width="298" height="518" fill="#fcfcfd"/>
+  <text x="600" y="52" font-size="13" fill="#5b6bd6" font-weight="600">右侧栏 · 文档预览</text>
+  <text x="600" y="76" font-size="11" fill="#8a9099">README.md</text>
+  <line x1="581" y1="88" x2="879" y2="88" stroke="#e6e8ec"/>
+
+  <rect x="600" y="106" width="230" height="9" rx="4.5" fill="#dfe2e7"/>
+  <rect x="600" y="124" width="196" height="9" rx="4.5" fill="#dfe2e7"/>
+
+  <!-- 选中的一段文字 -->
+  <rect x="600" y="152" width="248" height="46" rx="4" fill="#ffe9a8"/>
+  <text x="608" y="170" font-size="12" fill="#3d4450">The popup must be anchored to the</text>
+  <text x="608" y="188" font-size="12" fill="#3d4450">selection, never covering it.</text>
+
+  <!-- 间距标注 -->
+  <line x1="864" y1="198" x2="864" y2="216" stroke="#b9c0c9"/>
+  <line x1="858" y1="198" x2="870" y2="198" stroke="#b9c0c9"/>
+  <line x1="858" y1="216" x2="870" y2="216" stroke="#b9c0c9"/>
+  <text x="792" y="212" font-size="10" fill="#8a9099">GAP 10px</text>
+
+  <!-- 卡片 -->
+  <rect x="600" y="216" width="264" height="150" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="614" y="240" font-size="12" font-weight="600" fill="#2b3138">翻译</text>
+  <text x="654" y="240" font-size="11" fill="#8a9099">自动检测 ▾ → 中文 ▾</text>
+  <text x="838" y="240" font-size="13" fill="#8a9099">×</text>
+  <line x1="600" y1="250" x2="864" y2="250" stroke="#eceef1"/>
+
+  <text x="614" y="270" font-size="10" fill="#8a9099">原文</text>
+  <text x="614" y="288" font-size="11" fill="#3d4450">The popup must be anchored to the</text>
+  <text x="614" y="304" font-size="11" fill="#3d4450">selection, never covering it.</text>
+  <line x1="614" y1="316" x2="850" y2="316" stroke="#eceef1"/>
+
+  <text x="614" y="334" font-size="10" fill="#8a9099">译文</text>
+  <text x="614" y="352" font-size="11" fill="#8a9099" font-style="italic">待接入翻译引擎</text>
+
+  <line x1="600" y1="366" x2="864" y2="366" stroke="#eceef1"/>
+  <text x="614" y="386" font-size="10" fill="#8a9099">占位说明…</text>
+  <rect x="788" y="372" width="62" height="20" rx="5" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="800" y="386" font-size="10" fill="#8a9099">复制译文</text>
+
+  <!-- 落点规则 -->
+  <text x="44" y="180" font-size="12" fill="#2b3138" font-weight="600">落点规则</text>
+  <text x="44" y="202" font-size="11" fill="#5c636c">1. 默认贴选区正下方（GAP 10px）</text>
+  <text x="44" y="222" font-size="11" fill="#5c636c">2. 下方放不下 → 翻到选区上方</text>
+  <text x="44" y="242" font-size="11" fill="#5c636c">3. 水平居中于选区，并夹进视口留白 8px</text>
+  <text x="44" y="262" font-size="11" fill="#5c636c">4. 卡片比视口还高 → 钉在顶部，超出部分内部滚动</text>
+
+  <text x="44" y="300" font-size="12" fill="#2b3138" font-weight="600">收起时机</text>
+  <text x="44" y="322" font-size="11" fill="#5c636c">Escape / 点别处 / 滚动 / 改窗口大小 / 选区塌陷</text>
+  <text x="44" y="342" font-size="11" fill="#5c636c">在卡片内点击不收起（阻止 mousedown 默认行为）</text>
+
+  <text x="44" y="380" font-size="12" fill="#2b3138" font-weight="600">两条选区来源</text>
+  <text x="44" y="402" font-size="11" fill="#5c636c">① 文档预览（同文档 DOM）：只认右栏 ——</text>
+  <text x="44" y="420" font-size="11" fill="#5c636c">data-sidebar-right-session / data-dockkit-pane /</text>
+  <text x="44" y="438" font-size="11" fill="#5c636c">data-dockkit-float / data-sidebar-right-tab</text>
+  <text x="44" y="462" font-size="11" fill="#3d7a4a">② 浏览器 tab（跨域 webview）：executeJavaScript 桥 + 250ms 轮询</text>
+  <text x="44" y="480" font-size="11" fill="#5c636c">坐标 = guest 局部矩形 + webview 宿主矩形（× guest 缩放）</text>
+  <text x="44" y="502" font-size="11" fill="#8a9099">两条来源汇合到同一张卡片，定位与状态机只有一份实现</text>
+  <text x="44" y="524" font-size="11" fill="#3d7a4a">译文：卡片 → 宿主路由 /dsh-translate/api/translate → ctx.llm.stream</text>
+</svg>
