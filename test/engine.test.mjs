@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRouteHandler, describeRuntime, apply, modelFromSessionEvents, resolveConfig, ROUTE_PREFIX, VERSION } from '../lib/index.js';
+import { createRouteHandler, describeRuntime, apply, modelFromProjections, modelFromSessionEvents, resolveConfig, ROUTE_PREFIX, VERSION } from '../lib/index.js';
 import {
   LANGUAGE_NAMES,
   MAX_INPUT_CHARS,
@@ -307,6 +307,7 @@ function makeHandler(overrides) {
     cache: opts.cache,
     tokenCache: opts.tokenCache,
     sessionTtlMs: opts.sessionTtlMs,
+    sessionLimitsMs: opts.sessionLimitsMs,
     describe: () =>
       Object.assign(
         { llm: llm, selection: { provider: 'deepseek-account', model: 'deepseek-flash' }, providers: ['deepseek-account'] },
@@ -335,10 +336,165 @@ function fakeSessions(table) {
   };
 }
 
+/**
+ * 更完整的假 sessionController：投影与日志各自可控（值 / 抛错 / 挂着不返回）。
+ *
+ * 为什么会"挂着"：真实环境里 `inspect()` 要读整份事件日志（实测当前会话压缩后 5 MB、
+ * 解压几十 MB），慢到把一次划词拖过客户端超时 —— 这就是要修的 bug，所以必须能测它。
+ */
+function fakeSessions2(spec) {
+  const cfg = spec ?? {};
+  const calls = { projections: [], inspect: [] };
+  const controller = { calls: calls };
+  const settle = (thing) => {
+    if (thing !== null && typeof thing === 'object' && thing.hang === true) return new Promise(() => {});
+    if (thing !== null && typeof thing === 'object' && thing.throw !== undefined) return Promise.reject(thing.throw);
+    return Promise.resolve(thing);
+  };
+  if (cfg.projections !== undefined) {
+    controller.projections = (request) => {
+      calls.projections.push(request.sessionId);
+      return settle(cfg.projections);
+    };
+  }
+  if (cfg.inspect !== undefined) {
+    controller.inspect = (sessionId) => {
+      calls.inspect.push(sessionId);
+      // 按 SessionInspection 的形状返回：{ meta, inheritedEventCount, events }
+      return settle(cfg.inspect).then((value) => (Array.isArray(value) ? { meta: { id: sessionId }, inheritedEventCount: 0, events: value } : value));
+    };
+  }
+  return controller;
+}
+
 /** 一条 request/context 事件（会话请求日志里记录当前模型的地方）。 */
 const ctxEvent = (provider, model, seq) => ({ type: 'request/context', seq: seq ?? 1, time: 0, data: { provider: provider, model: model } });
 /** 一条 request/header 事件（另一种带模型的记录）。 */
 const headerEvent = (provider, model) => ({ type: 'request/header', seq: 1, time: 0, data: { header: { config: { provider: provider, model: model } }, reason: 'initial' } });
+
+/** 投影值：{ modelSelection: { lastUsed: { provider, model }, pending } } */
+const projectionWith = (provider, model, extra) => ({
+  asOfSeq: 42,
+  values: { modelSelection: Object.assign({ lastUsed: { provider: provider, model: model }, pending: null }, extra ?? {}) },
+});
+
+// 会话模型：首选读投影（KB 级），而不是读整份日志（几十 MB 级）
+{
+  check(
+    '会话投影：从 modelSelection.lastUsed 取模型',
+    (() => {
+      const found = modelFromProjections(projectionWith('prov', 'model-x').values);
+      return found !== null && found.provider === 'prov' && found.model === 'model-x';
+    })(),
+  );
+  check(
+    '会话投影：pending 优先（用户刚换、还没发消息时它才是最新意图）',
+    (() => {
+      const found = modelFromProjections({ modelSelection: { lastUsed: { provider: 'p', model: 'old' }, pending: { provider: 'p', model: 'new' } } });
+      return found !== null && found.model === 'new';
+    })(),
+  );
+  check(
+    '会话投影：兼容持久化包装 { ver, seq, val }',
+    (() => {
+      const found = modelFromProjections({ modelSelection: { ver: 2, seq: 9, val: { lastUsed: { provider: 'p', model: 'wrapped' } } } });
+      return found !== null && found.model === 'wrapped';
+    })(),
+  );
+  check(
+    '会话投影：字段缺失/类型不对/空值都不硬猜',
+    modelFromProjections(null) === null &&
+      modelFromProjections({}) === null &&
+      modelFromProjections({ modelSelection: null }) === null &&
+      modelFromProjections({ modelSelection: { lastUsed: { provider: 'p' } } }) === null &&
+      modelFromProjections({ modelSelection: { lastUsed: { provider: '', model: 'm' } } }) === null,
+  );
+}
+
+{
+  // 首选路径：投影能用就**不碰**日志（这条是超时修复的核心断言）
+  const controller = fakeSessions2({ projections: projectionWith('proj-provider', 'proj-model'), inspect: [ctxEvent('log-provider', 'log-model')] });
+  const { handler, llm } = makeHandler({ sessionController: controller });
+  const result = await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'llm', sessionId: 'sess-1' });
+  check(
+    '跟随会话：投影里有模型时就用它',
+    result.status === 200 && llm.calls[0].provider === 'proj-provider' && llm.calls[0].model === 'proj-model',
+    JSON.stringify({ provider: llm.calls[0]?.provider, model: llm.calls[0]?.model }),
+  );
+  check('跟随会话：用了投影就**不读日志**（日志几十 MB，读它就是超时的根源）', controller.calls.inspect.length === 0, JSON.stringify(controller.calls));
+  const health = await handler('GET', ROUTE_PREFIX + '/health');
+  check(
+    '跟随会话：/health 标出这次走的是投影',
+    health.obj.sessionFollow.last.via === 'projection' && health.obj.sessionFollow.enabled === true,
+    JSON.stringify(health.obj.sessionFollow),
+  );
+}
+
+{
+  // 投影里没有这个键（老版本）→ 退回限时读日志
+  const controller = fakeSessions2({ projections: { somethingElse: 1 }, inspect: [ctxEvent('log-provider', 'log-model')] });
+  const { handler, llm } = makeHandler({ sessionController: controller });
+  await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'llm', sessionId: 'sess-2' });
+  check('跟随会话：投影没有该键时退回日志', llm.calls[0].provider === 'log-provider', String(llm.calls[0]?.provider));
+  check('跟随会话：两条路都试过', controller.calls.inspect.length === 1 && controller.calls.projections.length === 1, JSON.stringify(controller.calls));
+}
+
+{
+  // **超时回归**：投影接口挂着不返回（且不理会 signal）时，请求必须照常完成、用全局默认
+  const controller = fakeSessions2({ projections: { hang: true } });
+  const { handler, llm } = makeHandler({ sessionController: controller, sessionLimitsMs: { projection: 20, events: 20 } });
+  const started = Date.now();
+  const result = await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'llm', sessionId: 'sess-hang' });
+  const elapsed = Date.now() - started;
+  check(
+    '超时回归：读会话挂住时翻译照常完成（不卡死）',
+    result.status === 200 && llm.calls[0].model === 'deepseek-flash',
+    JSON.stringify({ status: result.status, model: llm.calls[0]?.model }),
+  );
+  check('超时回归：卡住的时间被限死在限时内（不是无限等）', elapsed < 1500, elapsed + 'ms');
+  const health = await handler('GET', ROUTE_PREFIX + '/health');
+  check(
+    '超时回归：/health 说明是超时并用回了默认模型',
+    health.obj.sessionFollow.last.source === 'default' && health.obj.sessionFollow.last.reason.includes('超时'),
+    JSON.stringify(health.obj.sessionFollow.last),
+  );
+}
+
+{
+  // 投影抛错 + 日志挂着 → 仍然限时收敛
+  const controller = fakeSessions2({ projections: { throw: new Error('projection boom') }, inspect: { hang: true } });
+  const { handler, llm } = makeHandler({ sessionController: controller, sessionLimitsMs: { projection: 20, events: 20 } });
+  const result = await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'llm', sessionId: 'sess-boom' });
+  check('超时回归：投影抛错 + 日志挂住时同样回落默认模型', result.status === 200 && llm.calls[0].model === 'deepseek-flash', String(llm.calls[0]?.model));
+  const health = await handler('GET', ROUTE_PREFIX + '/health');
+  check('超时回归：原因里带上"读会话日志超时"', health.obj.sessionFollow.last.reason.includes('超时'), health.obj.sessionFollow.last.reason);
+}
+
+{
+  // 配置关掉跟随 → 一次都不读会话
+  const controller = fakeSessions2({ projections: projectionWith('proj-provider', 'proj-model') });
+  const { handler, llm } = makeHandler({ sessionController: controller, config: resolveConfig({ engines: ['llm'], followSessionModel: false }) });
+  await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'llm', sessionId: 'sess-3' });
+  check('配置：followSessionModel=false 时完全不动会话状态', controller.calls.projections.length === 0 && controller.calls.inspect.length === 0, JSON.stringify(controller.calls));
+  check('配置：followSessionModel=false 时用全局默认模型', llm.calls[0].model === 'deepseek-flash', String(llm.calls[0]?.model));
+  const health = await handler('GET', ROUTE_PREFIX + '/health');
+  check(
+    '配置：/health 里 enabled=false 且说明了原因',
+    health.obj.sessionFollow.enabled === false && health.obj.sessionFollow.last.reason.includes('followSessionModel'),
+    JSON.stringify(health.obj.sessionFollow),
+  );
+  check('配置：默认值是跟随（true）', resolveConfig({}).followSessionModel === true);
+}
+
+{
+  // 读失败后的短暂退避：同一会话连续划词不该每次都等一次限时
+  const controller = fakeSessions2({ projections: { hang: true } });
+  const { handler } = makeHandler({ sessionController: controller, sessionLimitsMs: { projection: 20, events: 20 } });
+  await handler('POST', ROUTE_PREFIX + '/translate', { text: 'first', engine: 'llm', sessionId: 'sess-retry' });
+  await handler('POST', ROUTE_PREFIX + '/translate', { text: 'second', engine: 'llm', sessionId: 'sess-retry' });
+  check('超时回归：失败后有退避（连续两次划词只等一次限时）', controller.calls.projections.length === 1, JSON.stringify(controller.calls.projections));
+}
+
 
 // 会话日志 → 当前模型（A 方案的地基）
 {

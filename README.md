@@ -50,30 +50,42 @@
 ```
 右栏容器 [data-sidebar-right-session="<sessionId>"]      ← DSH 自己也是这么读的
    └─ 客户端划词时读出 sessionId，随请求发给宿主
-        └─ 宿主 sessionController.inspect(sessionId)      ← 读该会话的请求日志
-             └─ 取最后一条 request/context（或 request/header.config）的 provider/model
-                  └─ 拿不到 → agentDefaultModel.currentSelection()（设置里的全局默认）
+        └─ 宿主 sessionController.projections({ sessionId })   ← ① 首选：只读投影表（KB 级）
+             └─ 取投影 modelSelection（pending → lastUsed）的 provider/model
+                  └─ 没有这个投影（老版本）→ sessionController.inspect(sessionId)，
+                     限时 1.5s 读请求日志，超时就放弃
+                       └─ 都没有 → agentDefaultModel.currentSelection()（设置里的全局默认）
 ```
 
-**为什么读日志**：DSH 的文档写得很明确 —— 默认值只影响**之后**从它解析选择的 agent，
-而**已建立的会话沿用它请求日志里的那个选择**（这样改默认值不会让已有会话的前缀缓存失效）。
-所以"当前对话在用什么模型"这件事，唯一权威的地方就是日志里的 `request/context` 事件。
+**为什么是投影而不是日志**：投影 `modelSelection` 就是"这个会话当前在用什么模型"（实测值：
+`{ lastUsed: { provider, model, reasoningEffort }, pending }`），读它只有 KB 级开销。
+
+**⚠️ 为什么绝不能读整份日志**：`sessionController.inspect()` 会把会话事件日志整个读出来解析成对象
+交给调用方 —— 实测本机一个活跃会话的日志光是 zstd 压缩后就有 **5 MB**（解压几十 MB、几万条事件）。
+曾经的做法正是读日志，结果把一次划词拖过客户端上限，表现为"**模型翻译超时**"。所以现在：
+投影优先；万一要读日志，也只给 1.5 秒，拿不到就直接用全局默认模型（翻译照常进行）。
+两档限时都自己 race 计时器，**不依赖被调方理会 AbortSignal**。
 
 **兜底链**（任何一步拿不到都不会让翻译失败，只会退回上一层）：
 
 | 情况 | 结果 |
 |---|---|
-| 正常 | 用当前对话的模型 |
+| 正常 | 用当前对话的模型（`via: projection`） |
+| 投影里没有 `modelSelection`（老版本） | 限时读日志，成功则用（`via: events`） |
 | 请求里没有 `sessionId`（旧客户端 / 不在右栏容器里） | 全局默认 |
-| 会话日志里还没有 `request/context`（新会话还没发过消息） | 全局默认 |
+| 会话里还没有模型记录（新会话还没发过消息） | 全局默认 |
 | `sessionController` 不存在（宿主没有这个服务） | 全局默认 |
-| `inspect()` 抛错（会话不存在 / 读盘失败） | 全局默认 |
+| 读投影/日志超时或抛错 | 全局默认（原因写进 `/health`） |
+| 配置里 `followSessionModel: false` | 全局默认（完全不碰会话状态） |
 
-**读一次就缓存 60 秒**：`inspect()` 会把会话事件日志整个读出来（长会话可能几千条），
-而划词可能连着来好几次。缓存覆盖"连续划几个词"，换了模型最多 1 分钟生效。
+**读成功缓存 60 秒，读失败退避 5 秒**：连续划几个词不会每次都去读；失败也不会每个请求都各等一次限时。
+换了模型最多 1 分钟生效（也可以点卡片上的重试立刻再取一次）。
 
-**可自证**：`GET /dsh-translate/api/health` 里的 `sessionFollow.last` 会写明这次用的是
-`session` 还是 `default`、用的哪个 provider/model、以及回落的原因 —— 不用猜。
+**可自证**：`GET /dsh-translate/api/health` 里的 `sessionFollow` 会写明 `enabled`、两档限时、
+以及这次用的是 `session` 还是 `default`、走的哪条路（`via`）、哪个 provider/model、回落原因 —— 不用猜。
+
+**超时是配套的**：宿主模型侧 45s（翻译可能带推理，30s 会把"慢但能成"的翻译掐成超时），
+客户端 80s，且有一条单测钉住"客户端上限 > 宿主最坏耗时"（免费 8s×2 + 模型 45s + 两档会话读取）。
 
 ### 实测：这台机器上哪条通
 
@@ -104,7 +116,8 @@ Clash 的 TUN 模式同样能让它直连成功。引擎失败时卡片会写 "G
   config:
     engines: ['microsoft', 'google', 'llm']   # 自动模式的顺序；只写一家就是"只用这一家"
     freeTimeoutMs: 8000                       # 传统引擎超时
-    llmTimeoutMs: 30000                       # 模型引擎超时
+    llmTimeoutMs: 45000                       # 模型引擎超时（翻译可能带推理，给足留量）
+    followSessionModel: true                  # 模型是否跟随"当前对话"（读会话投影）
     googleApiKey: ''                          # 填了就走 Cloud Translation v2
     microsoftApiKey: ''                       # 填了就走 Azure Translator
     microsoftRegion: ''                       # Azure 多区域资源需要

@@ -43,6 +43,8 @@ const { registration, plugin, api, source } = loadBundle();
 const { TranslationCard, TranslateOverlay, placeCard, cssText, STYLE_TAG } = api;
 // 宿主侧的语言名表：用来钉住"客户端能选到 = 宿主认得出"（见语言表一致性用例）
 const { LANGUAGE_NAMES } = await import('../lib/engine.js');
+// 宿主默认值：用来钉住"客户端超时 > 宿主最坏耗时"这条跨模块不变量
+const { DEFAULTS, SESSION_EVENTS_LIMIT_MS, SESSION_READ_LIMIT_MS } = await import('../lib/index.js');
 
 const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
 const ANCHOR = rect(400, 300, 200, 20);
@@ -1215,6 +1217,17 @@ function selectionOn(element, text, box) {
   const bare = renderCard(draftOf({ rect: rect(980, 200, 30, 16) }));
   const bareCard = findNode(bare, (node) => node.props?.['data-translate-card'] === 'card');
   check('侧栏内：拿不到侧栏矩形时退回整窗夹取（不影响非侧栏场景）', Number.parseFloat(bareCard.props.style.width) === api.CARD_WIDTH, String(bareCard.props.style.width));
+}
+
+{
+  const worst = DEFAULTS.freeTimeoutMs * 2 + DEFAULTS.llmTimeoutMs + SESSION_READ_LIMIT_MS + SESSION_EVENTS_LIMIT_MS;
+  check(
+    '超时：客户端上限必须大于宿主最坏耗时（否则客户端先掐断，用户只看得到"超时"）',
+    api.REQUEST_TIMEOUT_MS > worst,
+    `${api.REQUEST_TIMEOUT_MS}ms > ${worst}ms（免费 8s×2 + 模型 ${DEFAULTS.llmTimeoutMs / 1000}s + 会话读取）`,
+  );
+  check('超时：宿主模型侧给了推理留量（≥45s，30s 会把"慢但能成"的翻译掐成超时）', DEFAULTS.llmTimeoutMs >= 45000, String(DEFAULTS.llmTimeoutMs));
+  check('超时：读会话的两档限时都很短（读日志是几十 MB 级，必须限时）', SESSION_READ_LIMIT_MS <= 5000 && SESSION_EVENTS_LIMIT_MS <= 3000, `${SESSION_READ_LIMIT_MS}/${SESSION_EVENTS_LIMIT_MS}`);
 }
 
 summary('卡片渲染与浮层接线');
