@@ -143,6 +143,41 @@ function sessionIdOf(element) {
   return '';
 }
 
+/**
+ * 侧栏的矩形 —— 卡片必须夹在这块区域里。
+ *
+ * 为什么需要：卡片挂在 frame 级浮层上，若只按**整窗**夹取，靠近侧栏边缘的选区
+ * 会把卡片推到对话区上方，那部分既盖住了别的区域、又点不动（用户实测的现象）。
+ * 所以边界取"侧栏根"；没有侧栏根（浮动面板等）就退到最近的容器。
+ *
+ * 返回普通矩形对象（不是 DOMRect），调用方拿去做交集即可；拿不到返回 null。
+ */
+function sidebarRectOf(element) {
+  if (element === null || element === undefined || typeof element.closest !== 'function') return null;
+  var target = null;
+  try {
+    // 优先侧栏根：它才是用户眼里的"侧栏范围"
+    target = element.closest('[data-sidebar-right-session]');
+    if (target === null) target = element.closest(SCOPE_QUERY);
+  } catch (error) {
+    target = null;
+  }
+  if (target === null || target === undefined || typeof target.getBoundingClientRect !== 'function') return null;
+  var box = null;
+  try {
+    box = target.getBoundingClientRect();
+  } catch (error) {
+    box = null;
+  }
+  if (box === null || box === undefined) return null;
+  return {
+    left: Number.isFinite(box.left) ? box.left : 0,
+    top: Number.isFinite(box.top) ? box.top : 0,
+    width: Number.isFinite(box.width) ? box.width : 0,
+    height: Number.isFinite(box.height) ? box.height : 0,
+  };
+}
+
 return {
   SCOPE_SELECTORS: SCOPE_SELECTORS,
   SCOPE_QUERY: SCOPE_QUERY,
@@ -150,5 +185,6 @@ return {
   isInSidebar: isInSidebar,
   isInsideElement: isInsideElement,
   sessionIdOf: sessionIdOf,
+  sidebarRectOf: sidebarRectOf,
   captureDraft: captureDraft,
 };

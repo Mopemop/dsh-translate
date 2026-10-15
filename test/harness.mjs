@@ -149,6 +149,11 @@ function removeListener(type, handler) {
 export function listenerCount(type) {
   return (listeners.get(type) ?? []).length;
 }
+
+/** 某一类事件各监听器的 capture 标记（用来断言「必须用捕获阶段」）。 */
+export function captureFlags(type) {
+  return (listeners.get(type) ?? []).map((row) => row.capture === true);
+}
 /** 触发某一类事件（document 与 window 上注册的都会收到，模拟真实冒泡到两者）。 */
 export function fire(type, event) {
   const rows = [...(listeners.get(type) ?? [])];

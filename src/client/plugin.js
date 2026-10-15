@@ -107,6 +107,9 @@ return {
     normalizeText: normalizeText,
     clampText: clampText,
     viewportOf: viewportOf,
+    viewportBounds: viewportBounds,
+    intersectBounds: intersectBounds,
+    boundsOfRect: boundsOfRect,
     rectOfRange: rectOfRange,
     placeCard: placeCard,
     // 作用域：判决顺序与效果
@@ -116,6 +119,7 @@ return {
     isInSidebar: isInSidebar,
     isInsideElement: isInsideElement,
     sessionIdOf: sessionIdOf,
+    sidebarRectOf: sidebarRectOf,
     captureDraft: captureDraft,
     // 选区监听器：事件时序
     createWatcher: createWatcher,

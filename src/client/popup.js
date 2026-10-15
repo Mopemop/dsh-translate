@@ -183,7 +183,10 @@ function TranslationCard(props) {
     if (height !== size.height) setSize({ height: height });
   });
 
-  var box = placeCard(draft.rect, { height: size.height }, viewportOf(props.window));
+  // 卡片边界 = 窗口视口 ∩ 右侧栏。只按窗口夹取的话，靠边的选区会把卡片推到对话区，
+  // 那部分既盖住别的区域、又点不动（用户实测现象）。
+  var bounds = cardBoundsOf(draft, props.window);
+  var box = placeCard(draft.rect, { height: size.height }, bounds);
   var view = viewOf(draft.result);
   var hint = hintOf(draft, view);
   // 重新翻译期间把上一版译文留在原位（只是变淡），见 hasPreviousText 的说明
@@ -325,7 +328,6 @@ function TranslationCard(props) {
   // 监听器判断"这次按下是不是在弹窗内部"用的是 `card.contains(target)`：
   // 菜单一旦在卡片之外，点选项就会被判成"点了外面"→ 先 clear() 把卡片收掉，
   // 点击根本到不了选项上（这正是"切换引擎后弹窗直接消失"的原因）。
-  var viewport = viewportOf(props.window);
   if (menuOpen === 'engine') {
     children = [
       head,
@@ -335,7 +337,7 @@ function TranslationCard(props) {
         kind: 'engine',
         box: box,
         size: size,
-        viewport: viewport,
+        bounds: bounds,
         current: currentEngine,
         options: ENGINE_CYCLE.map(function (id) {
           return { value: id, label: engineLabelOf(id), hint: ENGINE_HINTS[id] === undefined ? '' : ENGINE_HINTS[id] };
@@ -358,7 +360,7 @@ function TranslationCard(props) {
         kind: menuOpen,
         box: box,
         size: size,
-        viewport: viewport,
+        bounds: bounds,
         current: current,
         // 语言菜单是**紧凑变体**：贴着触发按钮（源语言靠左、目标语言靠右）、
         // 宽度按内容、没有说明列、字号更小 —— 它不该长得像下面那个引擎菜单。
@@ -404,6 +406,28 @@ function TranslationCard(props) {
 }
 
 /**
+ * 卡片的可用边界：窗口视口 ∩ 右侧栏。
+ *
+ * 三件事按顺序发生：
+ *   1. 拿窗口视口（原点 0,0）；
+ *   2. 拿这次选区所属侧栏的矩形（`[data-sidebar-right-session]`，浮动面板退到最近容器）；
+ *   3. 取交集 —— 交集为空（侧栏被拖到屏幕外之类）就退回窗口，宁可位置不理想也不能不显示。
+ *
+ * 侧栏矩形从哪来：文档选区用 `draft.element`（captureDraft 给的），
+ * 浏览器选区用 `draft.anchor.element`（webview 元素）——两者都能往上找到侧栏根。
+ */
+function cardBoundsOf(draft, win) {
+  var viewport = viewportBounds(viewportOf(win));
+  var element = draft !== null && draft !== undefined && draft.element !== undefined && draft.element !== null ? draft.element : null;
+  if (element === null && draft !== null && draft !== undefined && draft.anchor !== undefined && draft.anchor !== null) {
+    element = draft.anchor.element === undefined ? null : draft.anchor.element;
+  }
+  var panel = sidebarRectOf(element);
+  if (panel === null) return viewport;
+  return intersectBounds(viewport, boundsOfRect(panel)) ?? viewport;
+}
+
+/**
  * 通用下拉菜单（引擎 / 源语言 / 目标语言共用）。
  *
  * 三处选择器的结构完全一样：一个当前值 + 一串候选项 + 选中即回调。
@@ -418,7 +442,9 @@ function dropdownMenu(config) {
   var rowHeight = compact ? COMPACT_OPTION_HEIGHT : MENU_OPTION_HEIGHT;
   var maxHeight = compact ? COMPACT_MENU_MAX_HEIGHT : MENU_MAX_HEIGHT;
   var estimated = Math.min(config.options.length * rowHeight, maxHeight) + MENU_PADDING;
-  var fitsBelow = config.box.top + config.size.height + estimated <= config.viewport.height - CARD_MARGIN;
+  // 判定用**侧栏边界**而不是整窗：否则菜单会翻到侧栏外面，那部分同样点不动
+  var limit = Number.isFinite(config.bounds?.bottom) ? config.bounds.bottom : Number.isFinite(config.viewport?.height) ? config.viewport.height : 768;
+  var fitsBelow = config.box.top + config.size.height + estimated <= limit - CARD_MARGIN;
 
   var style = fitsBelow ? { top: 'calc(100% + ' + MENU_GAP + 'px)' } : { bottom: 'calc(100% + ' + MENU_GAP + 'px)' };
   if (compact) {

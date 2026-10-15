@@ -8,7 +8,7 @@
 import { loadBundle, check, summary } from './harness.mjs';
 
 const { api } = loadBundle();
-const { clamp, normalizeText, clampText, rectOfRange, placeCard, viewportOf, CARD_WIDTH, CARD_GAP, CARD_MARGIN, MAX_TEXT_CHARS } = api;
+const { clamp, normalizeText, clampText, rectOfRange, placeCard, viewportOf, viewportBounds, intersectBounds, boundsOfRect, CARD_WIDTH, CARD_GAP, CARD_MARGIN, MAX_TEXT_CHARS } = api;
 
 const VIEW = { width: 1280, height: 860 };
 const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
@@ -179,6 +179,53 @@ const anchor = rect(400, 300, 200, 20); // 选区：x 400..600，y 300..320
   }
   check('落点：2000 组随机输入全部有限', bad === null, bad ?? '全部有限');
   check('落点：2000 组随机输入全部满足可见性不变量', outOfView === null, outOfView ?? '顶部可见 + 装得下就装下 + 水平不越界');
+}
+
+// ----------------------------------------------------------------- 边界（卡片要留在侧栏里）
+
+{
+  check('边界：视口转边界矩形（原点 0,0）', (() => {
+    const b = viewportBounds({ width: 1280, height: 860 });
+    return b.left === 0 && b.top === 0 && b.right === 1280 && b.bottom === 860 && b.width === 1280;
+  })());
+  check('边界：视口缺失时给保守默认值', (() => {
+    const b = viewportBounds(null);
+    return b.width === 1024 && b.height === 768;
+  })());
+
+  check('边界：交集取更小的一块', (() => {
+    const out = intersectBounds(boundsOfRect(rect(0, 0, 1000, 800)), boundsOfRect(rect(700, 100, 300, 500)));
+    return out.left === 700 && out.top === 100 && out.right === 1000 && out.bottom === 600 && out.width === 300 && out.height === 500;
+  })());
+  check('边界：不相交时返回 null（调用方据此退让，而不是拿负宽高）', intersectBounds(boundsOfRect(rect(0, 0, 100, 100)), boundsOfRect(rect(500, 500, 100, 100))) === null);
+  check('边界：一侧缺失时返回另一侧', (() => {
+    const only = boundsOfRect(rect(10, 20, 30, 40));
+    return intersectBounds(null, only) === only && intersectBounds(only, undefined) === only;
+  })());
+  check('边界：零尺寸/NaN 的矩形视为无效', boundsOfRect(rect(0, 0, 0, 50)) === null && boundsOfRect({ left: NaN, top: 0, width: 10, height: 10 }) !== null);
+}
+
+{
+  // 用户报的现象：靠侧栏右缘的选区，卡片被推到对话区上方（越出侧栏、且那部分点不动）
+  const panel = boundsOfRect(rect(700, 60, 320, 520)); // 侧栏：右侧 320 宽
+  const viewport = viewportBounds({ width: 1280, height: 860 });
+  const bounds = intersectBounds(viewport, panel);
+  const anchor = rect(980, 200, 30, 16); // 选区贴侧栏右缘
+  const box = placeCard(anchor, { height: 180 }, bounds);
+
+  check('侧栏边界：卡片左边缘不越出侧栏', box.left >= panel.left + CARD_MARGIN, `left=${box.left} panel.left=${panel.left}`);
+  check('侧栏边界：卡片右边缘不越出侧栏', box.left + box.width <= panel.right - CARD_MARGIN + 0.5, `right=${box.left + box.width} panel.right=${panel.right}`);
+  check('侧栏边界：卡片顶部不越出侧栏', box.top >= panel.top + CARD_MARGIN - 0.5, `top=${box.top}`);
+  check('侧栏边界：宽度压到侧栏能容纳的宽度', box.width <= panel.width - CARD_MARGIN * 2, `width=${box.width} panel=${panel.width}`);
+
+  // 同一组输入下，只按整窗夹取就会越界 —— 用这条把"为什么必须传侧栏边界"钉住
+  const windowOnly = placeCard(anchor, { height: 180 }, viewport);
+  check('侧栏边界：若只按整窗夹取会越出侧栏（说明这层夹取确实必要）', windowOnly.left + windowOnly.width > panel.right, `${windowOnly.left + windowOnly.width} > ${panel.right}`);
+
+  // 侧栏底部贴边的选区：卡片要翻到上方并且仍在侧栏内
+  const lowAnchor = rect(800, 545, 60, 16);
+  const lowBox = placeCard(lowAnchor, { height: 300 }, bounds);
+  check('侧栏边界：贴底时翻到上方且不越出侧栏', lowBox.placement === 'above' && lowBox.top + 300 <= panel.bottom - CARD_MARGIN + 0.5, JSON.stringify(lowBox));
 }
 
 summary('几何与文本规整');

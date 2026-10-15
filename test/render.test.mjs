@@ -85,6 +85,15 @@ function draftOf(overrides) {
   );
 }
 
+/**
+ * 一个"选区所在的侧栏面板"桩：`closest` 命中右栏根并给出面板矩形。
+ * 卡片必须夹在这块矩形里（否则会越出侧栏、越出那部分还点不动）。
+ */
+function sidebarPanelOf(box) {
+  const panel = { nodeType: 1, getBoundingClientRect: () => box };
+  return { nodeType: 1, closest: (query) => (query.includes('[data-sidebar-right-session]') ? panel : null), getBoundingClientRect: () => box };
+}
+
 // ----------------------------------------------------------------- 产物形态
 
 check('产物：没有顶层 import', /^\s*import\s/m.test(source) === false);
@@ -1187,6 +1196,25 @@ function selectionOn(element, text, box) {
   const bare = JSON.parse(String(http.calls[0].init.body));
   check('接线：读不到 sessionId 时不发送这个字段（退回全局默认模型）', bare.sessionId === undefined && Object.keys(bare).sort().join(',') === 'engine,source,target,text', JSON.stringify(bare));
   resetStorage();
+}
+
+// 卡片必须夹在**侧栏**里（用户实测：靠边的选区会把卡片推到对话区，那部分点不动）
+{
+  const panel = { left: 700, top: 60, width: 320, height: 520 };
+  const tree = renderCard(draftOf({ rect: rect(980, 200, 30, 16), element: sidebarPanelOf(panel) }));
+  const card = findNode(tree, (node) => node.props?.['data-translate-card'] === 'card');
+  const left = Number.parseFloat(card.props.style.left);
+  const top = Number.parseFloat(card.props.style.top);
+  const width = Number.parseFloat(card.props.style.width);
+  check('侧栏内：卡片左边缘不越出侧栏', left >= panel.left + api.CARD_MARGIN - 0.5, `left=${left}`);
+  check('侧栏内：卡片右边缘不越出侧栏', left + width <= panel.left + panel.width - api.CARD_MARGIN + 0.5, `right=${left + width} panel.right=${panel.left + panel.width}`);
+  check('侧栏内：卡片顶部不越出侧栏', top >= panel.top + api.CARD_MARGIN - 0.5, `top=${top}`);
+  check('侧栏内：宽度按侧栏收窄（不再固定 340）', width <= panel.width - api.CARD_MARGIN * 2, `width=${width}`);
+
+  // 不在侧栏里（拿不到面板矩形）时，行为退回整窗夹取
+  const bare = renderCard(draftOf({ rect: rect(980, 200, 30, 16) }));
+  const bareCard = findNode(bare, (node) => node.props?.['data-translate-card'] === 'card');
+  check('侧栏内：拿不到侧栏矩形时退回整窗夹取（不影响非侧栏场景）', Number.parseFloat(bareCard.props.style.width) === api.CARD_WIDTH, String(bareCard.props.style.width));
 }
 
 summary('卡片渲染与浮层接线');

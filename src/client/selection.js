@@ -31,9 +31,18 @@ function createWatcher(options) {
   var win = options.window === undefined ? null : options.window;
   var bound = [];
   var timer = 0;
+  var settleTimer = 0;
   var stopped = false;
   var popupGuard = false;
   var reanchorScheduled = false;
+  /**
+   * 上一次已经交出去的选区文本。
+   *
+   * 用来去重：`selectionchange` 与 `mouseup` 都会触发取词（见 onSelectionChange 的说明），
+   * 同一段文本被取两次就会**重新翻译一遍**（卡片闪一下、白花一次请求）。
+   * 只有在"已经收起"时才清空它，这样用户收起后再选同一段文本仍然会弹。
+   */
+  var lastPicked = '';
 
   function popupElement() {
     if (typeof options.getPopupElement !== 'function') return null;
@@ -56,8 +65,11 @@ function createWatcher(options) {
     }
   }
 
+  var SELECTION_SETTLE_MS = 180;
+
   function clear() {
     if (stopped) return;
+    lastPicked = '';
     options.onClear();
   }
 
@@ -81,6 +93,10 @@ function createWatcher(options) {
       clear();
       return;
     }
+    // 同一段文本已经交出去过（mouseup + selectionchange 各来一次）→ 不重复取词，
+    // 否则会重新翻译一遍、卡片闪一下
+    if (draft.text === lastPicked) return;
+    lastPicked = draft.text;
     options.onPick(draft);
   }
 
@@ -88,6 +104,9 @@ function createWatcher(options) {
   function schedulePick() {
     if (stopped) return;
     if (timer !== 0 && win !== null && typeof win.clearTimeout === 'function') win.clearTimeout(timer);
+    // 选区刚稳定，不需要再等
+    if (settleTimer !== 0 && win !== null && typeof win.clearTimeout === 'function') win.clearTimeout(settleTimer);
+    settleTimer = 0;
     if (win === null || typeof win.setTimeout !== 'function') {
       pick();
       return;
@@ -95,7 +114,27 @@ function createWatcher(options) {
     timer = win.setTimeout(pick, 0);
   }
 
-  function onMouseUp() {
+  /**
+   * 选区"稳定下来"之后的兜底取词。
+   *
+   * 为什么需要：拖到侧栏外松手时，外面的元素可能 `stopPropagation()` 掉 mouseup
+   * （对话区就有这种处理），只靠 mouseup 会漏掉这次划词。selectionchange 是浏览器
+   * 直接派发的，吞不掉 —— 于是等它安静 180ms 再取一次。
+   * 顺带把键盘选区（双击、Shift+方向键、Ctrl+A）也覆盖了。
+   */
+  function scheduleSettle() {
+    if (stopped) return;
+    if (settleTimer !== 0 && win !== null && typeof win.clearTimeout === 'function') win.clearTimeout(settleTimer);
+    if (win === null || typeof win.setTimeout !== 'function') return;
+    settleTimer = win.setTimeout(function () {
+      settleTimer = 0;
+      pick();
+    }, SELECTION_SETTLE_MS);
+  }
+
+  function onMouseUp(event) {
+    // 捕获阶段收到的非主键（右键菜单等）不算划词结束
+    if (event !== null && event !== undefined && typeof event.button === 'number' && event.button !== 0) return;
     schedulePick();
   }
 
@@ -129,7 +168,12 @@ function createWatcher(options) {
   function onSelectionChange() {
     if (stopped || popupGuard) return;
     var selection = currentSelection();
-    if (selection === null || selection.isCollapsed === true) clear();
+    if (selection === null || selection.isCollapsed === true) {
+      clear();
+      return;
+    }
+    // 选区非空：等它安静下来再取（覆盖"mouseup 被外面吞掉"与键盘选区）
+    scheduleSettle();
   }
 
   /**
@@ -179,7 +223,9 @@ function createWatcher(options) {
   }
 
   function start() {
-    listen(doc, 'mouseup', onMouseUp);
+    // mouseup 也走捕获阶段：拖到侧栏外松手时，外面的元素（对话区）可能吞掉事件，
+    // 冒泡阶段就收不到了 —— 那正是"鼠标在侧栏外松手不弹卡片"的原因
+    listen(doc, 'mouseup', onMouseUp, true);
     // mousedown 用捕获阶段：卡片内的按钮若自己吞掉事件，这里也必须先看到
     listen(doc, 'mousedown', onMouseDown, true);
     listen(doc, 'keyup', onKeyUp);
@@ -192,7 +238,10 @@ function createWatcher(options) {
   function stop() {
     stopped = true;
     if (timer !== 0 && win !== null && typeof win.clearTimeout === 'function') win.clearTimeout(timer);
+    if (settleTimer !== 0 && win !== null && typeof win.clearTimeout === 'function') win.clearTimeout(settleTimer);
     timer = 0;
+    settleTimer = 0;
+    lastPicked = '';
     for (var i = 0; i < bound.length; i++) {
       var entry = bound[i];
       if (typeof entry.target.removeEventListener === 'function') entry.target.removeEventListener(entry.type, entry.handler, entry.capture);
@@ -205,6 +254,7 @@ function createWatcher(options) {
     stop: stop,
     pick: pick,
     schedulePick: schedulePick,
+    scheduleSettle: scheduleSettle,
     isPopupGuarded: function () {
       return popupGuard;
     },

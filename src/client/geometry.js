@@ -76,6 +76,47 @@ function viewportOf(win) {
 }
 
 /**
+ * 视口 → 带原点的边界矩形。
+ *
+ * `placeCard` 原本只认 `{width, height}`（原点固定 0,0）。但卡片实际该被夹在
+ * **右侧栏**里，而侧栏有自己的 left/top —— 所以这里统一成"边界矩形"，
+ * 让 `placeCard` 只认一种形状。
+ */
+function viewportBounds(viewport) {
+  var width = viewport !== null && viewport !== undefined && Number.isFinite(viewport.width) ? viewport.width : 1024;
+  var height = viewport !== null && viewport !== undefined && Number.isFinite(viewport.height) ? viewport.height : 768;
+  return { left: 0, top: 0, right: width, bottom: height, width: width, height: height };
+}
+
+/**
+ * 两个边界矩形的交集（卡片要同时待在两边内）。
+ *
+ * 不相交时返回 `null` —— 调用方据此选择"退而求其次"的边界，
+ * 而不是给出一个宽高为负的怪矩形。
+ */
+function intersectBounds(a, b) {
+  if (a === null || a === undefined) return b === undefined ? null : b;
+  if (b === null || b === undefined) return a;
+  var left = Math.max(a.left, b.left);
+  var top = Math.max(a.top, b.top);
+  var right = Math.min(a.right, b.right);
+  var bottom = Math.min(a.bottom, b.bottom);
+  if (right <= left || bottom <= top) return null;
+  return { left: left, top: top, right: right, bottom: bottom, width: right - left, height: bottom - top };
+}
+
+/** 把一个矩形规整成边界矩形（DOMRect / 普通对象都认）。 */
+function boundsOfRect(rect) {
+  if (rect === null || rect === undefined) return null;
+  var left = Number.isFinite(rect.left) ? rect.left : 0;
+  var top = Number.isFinite(rect.top) ? rect.top : 0;
+  var width = Number.isFinite(rect.width) ? rect.width : 0;
+  var height = Number.isFinite(rect.height) ? rect.height : 0;
+  if (width <= 0 || height <= 0) return null;
+  return { left: left, top: top, right: left + width, bottom: top + height, width: width, height: height };
+}
+
+/**
  * 把选区矩形规整成四个有限数值。
  *
  * 两种真实退化都要兜住：
@@ -124,17 +165,20 @@ function rectOfRange(range) {
  * 卡片会被推到视口上方看不见的地方（这个 bug 是被 2000 组随机输入抓出来的）。
  */
 function placeCard(anchor, size, viewport) {
-  var width = Math.min(CARD_WIDTH, Math.max(160, viewport.width - CARD_MARGIN * 2));
+  // 第三个参数可以是视口尺寸（{width,height}，原点 0,0），
+  // 也可以是带原点的边界矩形（右侧栏的框）——统一成后者再算
+  var bounds = viewport !== null && viewport !== undefined && Number.isFinite(viewport.left) ? viewport : viewportBounds(viewport);
+  var width = Math.min(CARD_WIDTH, Math.max(160, bounds.width - CARD_MARGIN * 2));
   var height = size !== null && size !== undefined && Number.isFinite(size.height) ? Math.max(0, size.height) : 0;
   var below = anchor.bottom + CARD_GAP;
-  var fitsBelow = below + height <= viewport.height - CARD_MARGIN;
+  var fitsBelow = below + height <= bounds.bottom - CARD_MARGIN;
   var placement = fitsBelow ? 'below' : 'above';
   var top = fitsBelow ? below : anchor.top - CARD_GAP - height;
-  var maxTop = Math.max(CARD_MARGIN, viewport.height - CARD_MARGIN - height);
-  top = clamp(top, CARD_MARGIN, maxTop);
+  var maxTop = Math.max(bounds.top + CARD_MARGIN, bounds.bottom - CARD_MARGIN - height);
+  top = clamp(top, bounds.top + CARD_MARGIN, maxTop);
   var centered = anchor.left + anchor.width / 2 - width / 2;
-  var maxLeft = Math.max(CARD_MARGIN, viewport.width - width - CARD_MARGIN);
-  var left = clamp(centered, CARD_MARGIN, maxLeft);
+  var maxLeft = Math.max(bounds.left + CARD_MARGIN, bounds.right - width - CARD_MARGIN);
+  var left = clamp(centered, bounds.left + CARD_MARGIN, maxLeft);
   return {
     left: Math.round(left),
     top: Math.round(top),
@@ -167,6 +211,9 @@ return {
   normalizeText: normalizeText,
   clampText: clampText,
   viewportOf: viewportOf,
+  viewportBounds: viewportBounds,
+  intersectBounds: intersectBounds,
+  boundsOfRect: boundsOfRect,
   rectOfRange: rectOfRange,
   placeCard: placeCard,
   composeRect: composeRect,

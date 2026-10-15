@@ -67,6 +67,9 @@ const EXPORTS = {
     'normalizeText',
     'clampText',
     'viewportOf',
+    'viewportBounds',
+    'intersectBounds',
+    'boundsOfRect',
     'rectOfRange',
     'placeCard',
     'composeRect',
@@ -78,6 +81,7 @@ const EXPORTS = {
     'isInSidebar',
     'isInsideElement',
     'sessionIdOf',
+    'sidebarRectOf',
     'captureDraft',
   ],
   translate: [
@@ -152,7 +156,7 @@ const MODULES = [
   {
     name: 'popup',
     file: 'popup.js',
-    deps: ['@platform', 'geometry', 'translate', 'selection', 'guest-bridge', 'anchor'],
+    deps: ['@platform', 'geometry', 'scope', 'translate', 'selection', 'guest-bridge', 'anchor'],
     what: '翻译卡片与浮层组件（文档选区与浏览器选区两条来源）',
   },
   {

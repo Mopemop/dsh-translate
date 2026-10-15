@@ -6,7 +6,7 @@
  * 事件时序用测试台自己的 timer 队列驱动，所以"mouseup 之后的下一个 tick"
  * 是可控的，不依赖真实计时。
  */
-import { loadBundle, check, summary, fakeDocument, fakeWindow, fire, flushTimers, pendingTimers, resetListeners, setSelection, listenerCount } from './harness.mjs';
+import { loadBundle, check, summary, fakeDocument, fakeWindow, fire, flushTimers, pendingTimers, resetListeners, setSelection, listenerCount, captureFlags } from './harness.mjs';
 
 const { api } = loadBundle();
 const { captureDraft, isInSidebar, isInsideElement, elementOfNode, SCOPE_QUERY, SCOPE_SELECTORS, createWatcher, MAX_TEXT_CHARS } = api;
@@ -61,12 +61,32 @@ check('作用域：没有 closest 能力的节点不命中（不抛异常）', i
 check('作用域：null 不命中', isInSidebar(null) === false);
 check('作用域：closest 抛异常时判为不命中', isInSidebar({ nodeType: 1, closest: () => { throw new Error('bad selector'); } }) === false);
 
-check('元素：文本节点往上取一层', elementOfNode(textNodeIn(sidebarElement)) === sidebarElement);
-check('元素：元素节点用它自己', elementOfNode(sidebarElement) === sidebarElement);
+check('元素：文本节点往上取一层', elementOfNode(textNodeIn(sidebarElement)) === sidebarElement);check('元素：元素节点用它自己', elementOfNode(sidebarElement) === sidebarElement);
 check('元素：没有父节点的文本节点返回 null', elementOfNode({ nodeType: 3, parentElement: undefined }) === null);
 check('包含判定：容器自身算包含', isInsideElement(sidebarElement, sidebarElement) === true);
 check('包含判定：contains 为真算包含', isInsideElement({ nodeType: 1 }, { contains: () => true }) === true);
 check('包含判定：容器为 null 时为假（不抛）', isInsideElement(sidebarElement, null) === false);
+
+// 侧栏矩形：卡片边界要用它（否则卡片会越出侧栏到对话区，那部分点不动）
+{
+  const panel = { nodeType: 1, getBoundingClientRect: () => rect(700, 60, 320, 520) };
+  const inPanel = { nodeType: 1, closest: (query) => (query.includes('[data-sidebar-right-session]') ? panel : null) };
+  const rect9 = api.sidebarRectOf(inPanel);
+  check('侧栏矩形：能取到侧栏根的矩形', rect9 !== null && rect9.left === 700 && rect9.width === 320, JSON.stringify(rect9));
+  check('侧栏矩形：不在侧栏里返回 null（调用方退回整窗）', api.sidebarRectOf(mainElement) === null);
+  check('侧栏矩形：没有 closest 能力的节点返回 null（不抛）', api.sidebarRectOf({ nodeType: 1 }) === null && api.sidebarRectOf(null) === null);
+  check('侧栏矩形：匹配元素没有矩形能力时返回 null', api.sidebarRectOf({ nodeType: 1, closest: () => ({ nodeType: 1 }) }) === null);
+  check(
+    '侧栏矩形：没有侧栏根时退到最近的容器（浮动面板等）',
+    (() => {
+      const float = { nodeType: 1, getBoundingClientRect: () => rect(100, 100, 400, 300) };
+      const element = { nodeType: 1, closest: (query) => (query.includes('[data-dockkit-float]') ? float : null) };
+      const out = api.sidebarRectOf(element);
+      return out !== null && out.left === 100 && out.width === 400;
+    })(),
+  );
+  check('侧栏矩形：矩形抛错时返回 null（不连累渲染）', api.sidebarRectOf({ nodeType: 1, closest: () => ({ nodeType: 1, getBoundingClientRect: () => { throw new Error('boom'); } }) }) === null);
+}
 
 // ----------------------------------------------------------------- captureDraft
 
@@ -320,6 +340,69 @@ const activeListeners = () => WATCHED_TYPES.reduce((sum, type) => sum + listener
   frames[0]();
   check('滚动：帧回调只重新定位一次', moved === 1, String(moved));
   fakeWindow.requestAnimationFrame = originalRaf;
+  watcher.stop();
+}
+
+// 拖到侧栏外松手：mouseup 可能被外面的元素吞掉，所以必须用捕获阶段 + 选区稳定兜底
+{
+  resetListeners();
+  setSelection(selectionOf({ text: 'drag out of sidebar' }));
+  const { watcher, calls } = makeWatcher();
+
+  check('时序：mouseup 用捕获阶段（外面的元素 stopPropagation 也收得到）', captureFlags('mouseup').every((flag) => flag === true), JSON.stringify(captureFlags('mouseup')));
+  check('时序：mousedown 仍在捕获阶段（卡片内按钮吞事件也看得到）', captureFlags('mousedown').every((flag) => flag === true), JSON.stringify(captureFlags('mousedown')));
+
+  // 只发 selectionchange（模拟 mouseup 被吞掉）：等选区稳定后仍然取词
+  resetListeners();
+  setSelection(selectionOf({ text: 'no mouseup reached us' }));
+  const settled = makeWatcher();
+  fire('selectionchange');
+  check('兜底：selectionchange 后先不急着弹（用户可能还在拖）', settled.calls.picks.length === 0, String(settled.calls.picks.length));
+  flushTimers();
+  check('兜底：选区稳定 180ms 后取词（覆盖 mouseup 被吞 / 键盘选区）', settled.calls.picks.length === 1, JSON.stringify(settled.calls.picks.map((row) => row.text)));
+  settled.watcher.stop();
+
+  // 右键松手不算划词结束
+  resetListeners();
+  setSelection(selectionOf({ text: 'right click' }));
+  const right = makeWatcher();
+  fire('mouseup', { button: 2 });
+  flushTimers();
+  check('时序：非主键（右键）的 mouseup 不取词', right.calls.picks.length === 0, String(right.calls.picks.length));
+  fire('mouseup', { button: 0 });
+  flushTimers();
+  check('时序：主键 mouseup 照常取词', right.calls.picks.length === 1, String(right.calls.picks.length));
+  right.watcher.stop();
+
+  // 去重：mouseup 与 selectionchange 都来一遍，不能重复取词（否则会重新翻译一次）
+  resetListeners();
+  setSelection(selectionOf({ text: 'pick me once' }));
+  const once = makeWatcher();
+  fire('mouseup');
+  flushTimers();
+  fire('selectionchange');
+  flushTimers();
+  check('去重：mouseup + selectionchange 只取一次词（否则白翻译一遍、卡片闪一下）', once.calls.picks.length === 1, String(once.calls.picks.length));
+
+  // 收起后再选同一段文本，仍要能弹（去重不能把正常重复划词也挡掉）
+  fire('mousedown', { target: { nodeType: 1 } });
+  check('去重：点别处会收起', once.calls.clears === 1, String(once.calls.clears));
+  fire('mouseup');
+  flushTimers();
+  check('去重：收起后再选同一段文本仍然会弹', once.calls.picks.length === 2, String(once.calls.picks.length));
+  once.watcher.stop();
+
+  // stop 要把待定的"稳定"定时器也清掉
+  resetListeners();
+  setSelection(selectionOf({ text: 'stop me' }));
+  const stopping = makeWatcher();
+  const beforeSettle = pendingTimers();
+  fire('selectionchange');
+  check('兜底：selectionchange 会排一个稳定定时器', pendingTimers() > beforeSettle, `${beforeSettle} → ${pendingTimers()}`);
+  stopping.watcher.stop();
+  check('stop：清掉待定的稳定定时器', pendingTimers() === 0, String(pendingTimers()));
+  flushTimers();
+  check('stop：停了之后不该再取词', stopping.calls.picks.length === 0, String(stopping.calls.picks.length));
   watcher.stop();
 }
 
