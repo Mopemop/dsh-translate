@@ -542,6 +542,9 @@ function beginTranslation(picked, setDraft, options) {
     target: target,
     manual: opts.manual === true,
     engine: engine,
+    // 卡片来源（与上面的 source 是两件事：那个是**语言**，这个是**选区从哪来**）。
+    // 'browser' = 侧栏浏览器（guest）选区 —— 宿主侧的取词判定据此避免误关 guest 的卡片。
+    origin: picked.origin !== undefined && picked.origin !== null ? picked.origin : typeof picked.source === 'string' && picked.source === 'browser' ? 'browser' : '',
     // 会话 id（"跟随当前对话的模型"用）：随选区一起带过来，重跑时沿用
     sessionId: typeof picked.sessionId === 'string' ? picked.sessionId : '',
     anchor: anchor,
@@ -584,7 +587,7 @@ function rerunDraft(draft, setDraft, options) {
   if (draft === null || draft === undefined) return;
   var opts = options === null || options === undefined ? {} : options;
   beginTranslation(
-    { text: draft.text, truncated: draft.truncated === true, rect: draft.rect, range: null, sessionId: draft.sessionId },
+    { text: draft.text, truncated: draft.truncated === true, rect: draft.rect, range: null, sessionId: draft.sessionId, origin: draft.origin },
     setDraft,
     {
       source: typeof opts.source === 'string' && opts.source !== '' ? opts.source : draft.source,
@@ -636,6 +639,11 @@ function TranslateOverlay(props) {
       window: win,
       getPopupElement: function () {
         return cardRef.current;
+      },
+      // guest（浏览器 tab）来的卡片不被宿主侧的取词判定误关
+      isGuestOwned: function () {
+        var current = draftRef.current;
+        return current !== null && current !== undefined && current.origin === 'browser';
       },
       onPick: function (picked) {
         beginTranslation(picked, setDraft);

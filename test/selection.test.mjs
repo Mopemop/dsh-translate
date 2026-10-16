@@ -175,7 +175,7 @@ const activeListeners = () => WATCHED_TYPES.reduce((sum, type) => sum + listener
   const { watcher, calls } = makeWatcher();
   fire('mouseup');
   flushTimers();
-  check('时序：只是点了下光标（塌陷）→ 收起', calls.picks.length === 0 && calls.clears === 1);
+  check('时序：只是点了下光标（塌陷）→ 不弹也**不收起**（塌陷不是取消划词）', calls.picks.length === 0 && calls.clears === 0, JSON.stringify(calls));
   watcher.stop();
 }
 
@@ -231,11 +231,11 @@ const activeListeners = () => WATCHED_TYPES.reduce((sum, type) => sum + listener
   const { watcher, calls } = makeWatcher();
   setSelection(selectionOf({ collapsed: true }));
   fire('selectionchange');
-  check('时序：选区被外部清空 → 收起', calls.clears === 1);
+  check('时序：选区被外部清空 → 不收起（塌陷不等于取消，见 pick 里的说明）', calls.clears === 0, String(calls.clears));
   fire('scroll');
-  check('时序：滚动 → 收起（锚点会漂，不如不显示）', calls.clears === 2);
+  check('时序：滚动且没有重新定位能力 → 收起', calls.clears === 1, String(calls.clears));
   fire('resize');
-  check('时序：改窗口大小 → 收起', calls.clears === 3);
+  check('时序：改窗口大小同样收起', calls.clears === 2, String(calls.clears));
   watcher.stop();
 }
 
@@ -406,4 +406,20 @@ const activeListeners = () => WATCHED_TYPES.reduce((sum, type) => sum + listener
   watcher.stop();
 }
 
+
+// guest（浏览器 tab）的卡片不能被宿主侧的取词判定误关
+{
+  resetListeners();
+  setSelection(selectionOf({ collapsed: true }));
+  const { watcher, calls } = makeWatcher({ isGuestOwned: () => true });
+  fire('mouseup');
+  flushTimers();
+  check('guest 归属：宿主侧是空选区时也不收起 guest 的卡片', calls.clears === 0 && calls.picks.length === 0, JSON.stringify(calls));
+  // 宿主侧选了一段对话区的文本（非空但不在侧栏）——同样不该关掉 guest 的卡片
+  setSelection(selectionOf({ anchorNode: mainElement }));
+  fire('mouseup');
+  flushTimers();
+  check('guest 归属：宿主侧在对话区选中文本也不收起 guest 的卡片', calls.clears === 0, JSON.stringify(calls));
+  watcher.stop();
+}
 summary('选区判决与监听器时序');

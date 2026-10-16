@@ -50,6 +50,22 @@ function createWatcher(options) {
     return element === undefined ? null : element;
   }
 
+  /**
+   * 当前卡片是不是"浏览器 tab 选区"带来的。
+   *
+   * 为什么需要：webview 里的选区在**宿主文档里看不到**（宿主这边往往是空选区/塌陷），
+   * 于是宿主侧的取词判定会把 guest 刚弹出来的卡片误判成"没选区了"顺手关掉。
+   * 属于 guest 的卡片就交给 guest 自己收（它的 clear 事件）与用户动作（点别处 / Escape）。
+   */
+  function isGuestOwned() {
+    if (typeof options.isGuestOwned !== 'function') return false;
+    try {
+      return options.isGuestOwned() === true;
+    } catch (error) {
+      return false;
+    }
+  }
+
   function listen(target, type, handler, capture) {
     if (target === null || target === undefined || typeof target.addEventListener !== 'function') return;
     target.addEventListener(type, handler, capture === true);
@@ -91,18 +107,31 @@ function createWatcher(options) {
       clampText: clampText,
     });
     if (draft === null) {
-      // 诊断：把"为什么没弹"的观测值送出去（真机才复现的问题靠它定位）
       var anchor = selection === null || selection === undefined ? null : elementOfNode(selection.anchorNode);
+      var collapsed = selection === null || selection === undefined ? true : selection.isCollapsed === true;
+      var rawLength = selection === null || selection === undefined || typeof selection.toString !== 'function' ? 0 : selection.toString().length;
+      // 诊断：把"为什么没弹"的观测值送出去（真机才复现的问题靠它定位）
       reportDiag('pick-rejected', {
         hasSelection: selection !== null && selection !== undefined,
-        collapsed: selection === null || selection === undefined ? null : selection.isCollapsed === true,
-        rawLength: selection === null || selection === undefined || typeof selection.toString !== 'function' ? null : selection.toString().length,
+        collapsed: collapsed,
+        rawLength: rawLength,
         element: elementBrief(anchor),
         inSidebar: isInSidebar(anchor),
         inPopup: isInsideElement(anchor, popupElement()),
         sidebar: sidebarRectOf(anchor),
         rect: selection === null || selection === undefined || typeof selection.getRangeAt !== 'function' ? null : rectOfRange(selection.getRangeAt(0)),
+        guestOwned: isGuestOwned(),
       });
+      /**
+       * ⚠️ 这里**不能**动不动就收起卡片 —— 曾经的 bug 就是这一行：
+       * 浏览器在"把鼠标拖出侧栏再松手"或"拖到不可选区域"时会把选区**塌陷掉**
+       * （诊断里看到的就是 `collapsed=true, rawLength=0, 宽度为 0 的插入符`），
+       * 于是卡片刚出现就被这些空选区判定关掉，表现为"闪现一下 / 松开就没了"。
+       *
+       * 收起只由这些**明确的用户动作**负责：点卡片外面、Escape、锚点失效（见别处）。
+       */
+      if (collapsed || rawLength === 0 || isGuestOwned()) return;
+      // 有内容但不在右栏（用户去对话区选东西了）→ 这才是"换目标了"，收起
       clear();
       return;
     }
@@ -183,7 +212,8 @@ function createWatcher(options) {
     if (stopped || popupGuard) return;
     var selection = currentSelection();
     if (selection === null || selection.isCollapsed === true) {
-      clear();
+      // ⚠️ 塌陷**不再**收起卡片：浏览器在"拖出侧栏松手"时会塌陷选区，
+      // 那不是"用户取消划词"。真正的取消由点别处 / Escape 负责。
       return;
     }
     // 选区非空：等它安静下来再取（覆盖"mouseup 被外面吞掉"与键盘选区）

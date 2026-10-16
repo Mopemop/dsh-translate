@@ -1290,4 +1290,31 @@ function selectionOn(element, text, box) {
   resetStorage();
 }
 
+
+// 浮层级：guest 来的卡片要能在"宿主侧空选区"下活下来（用户实测的"松开就没"）
+{
+  resetListeners();
+  resetCardNode();
+  resetMount(TranslationCard);
+  resetMount(TranslateOverlay);
+  resetHttp();
+  resetStorage();
+  api.resetTransport();
+
+  // 用文档选区弹一张卡，然后模拟"宿主侧选区塌陷"（拖出侧栏松手时的真实情形）
+  setSelection(sidebarSelection('doc selection'));
+  render(TranslateOverlay, {});
+  fire('mouseup');
+  flushTimers();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const card = findNode(render(TranslateOverlay, {}), (node) => node.props?.['data-translate-card'] === 'card');
+  check('卡片存活：先用文档选区弹出了卡片', card !== null);
+  // 宿主侧选区塌陷（模拟拖出侧栏松手）→ 卡片必须还在
+  setSelection({ isCollapsed: true, rangeCount: 0, toString: () => '', anchorNode: null, focusNode: null, getRangeAt: () => null });
+  fire('selectionchange');
+  flushTimers();
+  const after = findNode(render(TranslateOverlay, {}), (node) => node.props?.['data-translate-card'] === 'card');
+  check('卡片存活：宿主侧选区塌陷后卡片仍在（这就是"松开就没"的修复）', after !== null, after === null ? 'card gone' : 'card kept');
+  resetStorage();
+}
 summary('卡片渲染与浮层接线');
