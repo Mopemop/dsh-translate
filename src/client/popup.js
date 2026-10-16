@@ -389,7 +389,14 @@ function TranslationCard(props) {
       role: 'dialog',
       'aria-label': CARD_TITLE,
       ref: cardRef,
-      style: { left: box.left + 'px', top: box.top + 'px', width: box.width + 'px' },
+      // maxHeight 是"不越出侧栏"的最后一道闸：位置夹好了、高度不夹的话，
+      // 卡片比侧栏高时照样往下溢出，而那部分点不动
+      style: {
+        left: box.left + 'px',
+        top: box.top + 'px',
+        width: box.width + 'px',
+        maxHeight: Math.max(120, bounds.height - CARD_MARGIN * 2) + 'px',
+      },
       // 见文件头第 2 条：不让这次按下塌陷文档选区。
       // 顺带负责"点卡片别处就收起菜单"——但落点在菜单或某个触发器上时要放过，
       // 否则 mousedown 会先把菜单关掉、紧接着 click 又把它打开（闪烁）。
@@ -408,13 +415,14 @@ function TranslationCard(props) {
 /**
  * 卡片的可用边界：窗口视口 ∩ 右侧栏。
  *
- * 三件事按顺序发生：
+ * 三步：
  *   1. 拿窗口视口（原点 0,0）；
- *   2. 拿这次选区所属侧栏的矩形（`[data-sidebar-right-session]`，浮动面板退到最近容器）；
- *   3. 取交集 —— 交集为空（侧栏被拖到屏幕外之类）就退回窗口，宁可位置不理想也不能不显示。
+ *   2. 拿侧栏矩形 —— 两级兜底：先从选区元素往上找 `[data-sidebar-right-session]`
+ *      （正常路径），找不到（选区在 iframe 里、锚点已被替换掉）就取文档里的侧栏面板；
+ *   3. 取交集；两级都拿不到才退回窗口。
  *
- * 侧栏矩形从哪来：文档选区用 `draft.element`（captureDraft 给的），
- * 浏览器选区用 `draft.anchor.element`（webview 元素）——两者都能往上找到侧栏根。
+ * ⚠️ 这里同时约束**位置和高度**：只夹 left/top 的话，卡片比侧栏高时会往下溢出，
+ * 溢出的那部分盖住别处、还点不动（用户实测）。高度靠组件上的 `maxHeight` 落地。
  */
 function cardBoundsOf(draft, win) {
   var viewport = viewportBounds(viewportOf(win));
@@ -423,8 +431,18 @@ function cardBoundsOf(draft, win) {
     element = draft.anchor.element === undefined ? null : draft.anchor.element;
   }
   var panel = sidebarRectOf(element);
-  if (panel === null) return viewport;
-  return intersectBounds(viewport, boundsOfRect(panel)) ?? viewport;
+  if (panel === null) {
+    var doc = typeof document === 'undefined' ? null : document;
+    var body = doc === null || doc.body === undefined ? null : doc.body;
+    panel = sidebarRectOf(body);
+  }
+  if (panel === null) {
+    reportDiag('bounds', { source: 'window', element: elementBrief(element), viewport: viewport });
+    return viewport;
+  }
+  var merged = intersectBounds(viewport, boundsOfRect(panel)) ?? viewport;
+  reportDiag('bounds', { source: 'panel', element: elementBrief(element), panel: panel, viewport: viewport });
+  return merged;
 }
 
 /**

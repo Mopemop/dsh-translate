@@ -79,8 +79,9 @@ function createWatcher(options) {
     if (stopped) return;
     // 见文件头第 2 条：用户正在卡片里操作，这次塌陷不算"取消划词"
     if (popupGuard) return;
+    var selection = currentSelection();
     var draft = captureDraft({
-      selection: currentSelection(),
+      selection: selection,
       isInSidebar: isInSidebar,
       isInsidePopup: function (element) {
         return isInsideElement(element, popupElement());
@@ -90,6 +91,18 @@ function createWatcher(options) {
       clampText: clampText,
     });
     if (draft === null) {
+      // 诊断：把"为什么没弹"的观测值送出去（真机才复现的问题靠它定位）
+      var anchor = selection === null || selection === undefined ? null : elementOfNode(selection.anchorNode);
+      reportDiag('pick-rejected', {
+        hasSelection: selection !== null && selection !== undefined,
+        collapsed: selection === null || selection === undefined ? null : selection.isCollapsed === true,
+        rawLength: selection === null || selection === undefined || typeof selection.toString !== 'function' ? null : selection.toString().length,
+        element: elementBrief(anchor),
+        inSidebar: isInSidebar(anchor),
+        inPopup: isInsideElement(anchor, popupElement()),
+        sidebar: sidebarRectOf(anchor),
+        rect: selection === null || selection === undefined || typeof selection.getRangeAt !== 'function' ? null : rectOfRange(selection.getRangeAt(0)),
+      });
       clear();
       return;
     }
@@ -97,6 +110,7 @@ function createWatcher(options) {
     // 否则会重新翻译一遍、卡片闪一下
     if (draft.text === lastPicked) return;
     lastPicked = draft.text;
+    reportDiag('pick', { text: draft.text, element: elementBrief(draft.element), sidebar: sidebarRectOf(draft.element), rect: draft.rect });
     options.onPick(draft);
   }
 

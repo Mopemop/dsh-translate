@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRouteHandler, describeRuntime, apply, modelFromProjections, modelFromSessionEvents, resolveConfig, ROUTE_PREFIX, VERSION } from '../lib/index.js';
+import { createRouteHandler, describeRuntime, apply, DIAG_LIMIT, modelFromProjections, modelFromSessionEvents, resolveConfig, ROUTE_PREFIX, VERSION } from '../lib/index.js';
 import {
   LANGUAGE_NAMES,
   MAX_INPUT_CHARS,
@@ -828,6 +828,36 @@ function fakeResponse() {
   );
   const googleAgain = await handler('POST', ROUTE_PREFIX + '/translate', { text: 'Hello', engine: 'google' });
   check('路由：指定引擎同样按引擎缓存', googleAgain.obj.cached === true, JSON.stringify(googleAgain.obj));
+}
+
+// 客户端诊断通道：真机问题（卡片不出来 / 越出侧栏）靠它取证
+{
+  const { handler } = makeHandler();
+  const before = await handler('GET', ROUTE_PREFIX + '/health');
+  check('诊断通道：/health 默认带空的 diag', Array.isArray(before.obj.diag) && before.obj.diag.length === 0, JSON.stringify(before.obj.diag));
+
+  const posted = await handler('POST', ROUTE_PREFIX + '/diag', { items: [{ stage: 'pick-rejected', inSidebar: false, sidebar: null, text: 'abc' }] });
+  check('诊断通道：POST /diag 收下并回执', posted.status === 200 && posted.obj.ok === true && posted.obj.stored === 1, JSON.stringify(posted.obj));
+
+  const after = await handler('GET', ROUTE_PREFIX + '/health');
+  check(
+    '诊断通道：/health 能读到刚上报的那条（含时间戳）',
+    after.obj.diag.length === 1 && after.obj.diag[0].stage === 'pick-rejected' && after.obj.diag[0].inSidebar === false && typeof after.obj.diag[0].at === 'number',
+    JSON.stringify(after.obj.diag),
+  );
+
+  const many = [];
+  for (let i = 0; i < DIAG_LIMIT + 5; i++) many.push({ stage: 'noise', index: i });
+  await handler('POST', ROUTE_PREFIX + '/diag', { items: many });
+  const capped = await handler('GET', ROUTE_PREFIX + '/health');
+  check(
+    '诊断通道：只保留最近 ' + DIAG_LIMIT + ' 条（环形，不会无限涨）',
+    capped.obj.diag.length === DIAG_LIMIT && capped.obj.diag[capped.obj.diag.length - 1].index === DIAG_LIMIT + 4,
+    `size=${capped.obj.diag.length}`,
+  );
+
+  const junk = await handler('POST', ROUTE_PREFIX + '/diag', { items: [null, 42, 'x', { stage: 'ok' }] });
+  check('诊断通道：脏输入被过滤（只收对象）', junk.status === 200 && junk.obj.stored === 1, JSON.stringify(junk.obj));
 }
 
 summary('宿主引擎与路由');

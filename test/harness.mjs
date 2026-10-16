@@ -296,6 +296,8 @@ export const http = {
    */
   manual: false,
   pending: [],
+  /** 诊断上报单独记：它是管道，不该混进 http.calls 影响被测断言。 */
+  diagCalls: [],
 };
 
 export function resetHttp() {
@@ -307,11 +309,24 @@ export function resetHttp() {
   http.healthBody = { ok: true, hasLlm: true };
   http.manual = false;
   http.pending.length = 0;
+  http.diagCalls.length = 0;
 }
 
 const noJson = () => Promise.reject(new Error('Unexpected token < in JSON'));
 const respond = (url, init) => {
   const target = String(url);
+  // 诊断上报单独收：它不该出现在 http.calls 里（否则每条断言都要跳过它一次）
+  if (target.indexOf('/api/diag') !== -1) {
+    let payload = null;
+    try {
+      payload = JSON.parse(String(init === undefined ? '' : init.body));
+    } catch (error) {
+      payload = null;
+    }
+    http.diagCalls.push(payload);
+    if (http.mode === 'reject') return Promise.reject(new Error('connect ECONNREFUSED'));
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+  }
   http.calls.push({ url: target, init });
   if (http.mode === 'reject') return Promise.reject(new Error('connect ECONNREFUSED 127.0.0.1:19387'));
   const isHealth = target.indexOf('/health') !== -1;

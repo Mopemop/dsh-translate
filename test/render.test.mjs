@@ -1230,4 +1230,64 @@ function selectionOn(element, text, box) {
   check('超时：读会话的两档限时都很短（读日志是几十 MB 级，必须限时）', SESSION_READ_LIMIT_MS <= 5000 && SESSION_EVENTS_LIMIT_MS <= 3000, `${SESSION_READ_LIMIT_MS}/${SESSION_EVENTS_LIMIT_MS}`);
 }
 
+// 诊断上报：真机才复现的问题靠它取证（划词被拒 / 卡片边界来源）
+{
+  check('诊断：上报路径与 translate 同前缀（同一个宿主管辖）', api.DIAG_PATH === '/dsh-translate/api/diag' && api.API_PATH.startsWith('/dsh-translate/api/'), api.DIAG_PATH);
+  resetHttp();
+  api.reportDiag('probe', { text: 'x'.repeat(40), rect: { left: 1.4, top: 2.6, width: 3, height: 4 } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const sent = http.diagCalls[0]?.items?.[0];
+  check('诊断：能发到宿主路由', sent?.stage === 'probe', JSON.stringify(sent));
+  check('诊断：文本被摘要（不把用户内容整段送出去）', sent?.text.length <= 25 && sent.text.endsWith('…'), String(sent?.text));
+  check('诊断：矩形被取整', sent?.rect.l === 1 && sent?.rect.t === 3 && sent?.rect.w === 3, JSON.stringify(sent?.rect));
+  check('诊断：上报不写进 http.calls（管道不干扰被测断言）', http.calls.length === 0, String(http.calls.length));
+
+  resetHttp();
+  http.mode = 'reject';
+  let threw = null;
+  try {
+    api.reportDiag('probe', { text: 'boom' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } catch (error) {
+    threw = error;
+  }
+  check('诊断：上报失败被吞掉（不影响翻译）', threw === null, threw === null ? '' : threw.message);
+  resetHttp();
+}
+
+// 浮层级：划词成功/被拒、卡片边界来源都会上报（定位"卡片不出来 / 越界"的依据）
+{
+  resetListeners();
+  resetCardNode();
+  resetMount(TranslateOverlay);
+  resetHttp();
+  resetStorage();
+  api.resetTransport();
+
+  setSelection(sidebarSelection('diag me', 'sess-diag'));
+  render(TranslateOverlay, {});
+  fire('mouseup');
+  flushTimers();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  render(TranslateOverlay, {}); // 再渲染一次：卡片挂载时才会算边界并上报
+  const items = http.diagCalls.map((row) => row?.items?.[0]).filter(Boolean);
+  const stages = items.map((item) => item.stage);
+  check('诊断接线：划词成功会上报 pick', stages.includes('pick'), JSON.stringify(stages));
+  const pick = items.find((item) => item.stage === 'pick');
+  check('诊断接线：pick 里带选区矩形与元素摘要', pick?.rect?.w === 220 && typeof pick.element === 'string', JSON.stringify(pick));
+  check('诊断接线：卡片边界也会上报', stages.includes('bounds'), JSON.stringify(stages));
+
+  resetHttp();
+  setSelection(conversationSelection('chat text'));
+  render(TranslateOverlay, {});
+  fire('mouseup');
+  flushTimers();
+  const rejected = http.diagCalls
+    .map((row) => row?.items?.[0])
+    .filter(Boolean)
+    .find((item) => item.stage === 'pick-rejected');
+  check('诊断接线：被拒的划词上报 pick-rejected 并写明不在侧栏', rejected !== undefined && rejected.inSidebar === false, JSON.stringify(rejected));
+  resetStorage();
+}
+
 summary('卡片渲染与浮层接线');

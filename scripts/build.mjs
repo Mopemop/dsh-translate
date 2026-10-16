@@ -122,6 +122,7 @@ const EXPORTS = {
     'mergeResult',
   ],
   styles: ['STYLE_TAG', 'cssText', 'installCss'],
+  diag: ['DIAG_PATH', 'digest', 'rectBrief', 'elementBrief', 'reportDiag'],
   anchor: ['rangeAnchor', 'guestAnchor', 'elementRect', 'zoomFactorFor', 'rectOfAnchor'],
   selection: ['createWatcher'],
   'guest-bridge': [
@@ -145,24 +146,25 @@ const MODULES = [
   { name: 'scope', file: 'scope.js', deps: [], what: '作用域判定：只认右侧栏，并排除卡片自身' },
   { name: 'translate', file: 'translate.js', deps: [], what: '客户端引擎接缝：方向/引擎选择、宿主调用、运输方式回退' },
   { name: 'styles', file: 'styles.js', deps: [], what: '样式注入（CSS 文本在 styles/client.css）' },
+  { name: 'diag', file: 'diag.js', deps: [], what: '诊断上报：把客户端观测值送回宿主，暴露在 /health' },
   { name: 'anchor', file: 'anchor.js', deps: ['geometry'], what: '选区锚点：滚动/改窗口后重新算卡片落点（锚点失效才收起）' },
-  { name: 'selection', file: 'selection.js', deps: ['scope', 'geometry'], what: '选区监听器（事件时序集中在这里）' },
+  { name: 'selection', file: 'selection.js', deps: ['scope', 'geometry', 'diag'], what: '选区监听器（事件时序集中在这里）' },
   {
     name: 'guest-bridge',
     file: 'guest-bridge.js',
-    deps: ['geometry', 'anchor', 'scope'],
+    deps: ['geometry', 'anchor', 'scope', 'diag'],
     what: '侧栏浏览器选区桥（executeJavaScript 注入 + 轮询取事件）',
   },
   {
     name: 'popup',
     file: 'popup.js',
-    deps: ['@platform', 'geometry', 'scope', 'translate', 'selection', 'guest-bridge', 'anchor'],
+    deps: ['@platform', 'geometry', 'scope', 'translate', 'selection', 'guest-bridge', 'anchor', 'diag'],
     what: '翻译卡片与浮层组件（文档选区与浏览器选区两条来源）',
   },
   {
     name: 'plugin',
     file: 'plugin.js',
-    deps: ['@platform', 'styles', 'popup', 'geometry', 'scope', 'selection', 'translate', 'guest-bridge', 'anchor'],
+    deps: ['@platform', 'styles', 'popup', 'geometry', 'scope', 'selection', 'translate', 'guest-bridge', 'anchor', 'diag'],
     what: '插件入口：槽位注册、样式与生命周期',
   },
 ];

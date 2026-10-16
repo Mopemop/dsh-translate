@@ -172,6 +172,25 @@ node scripts/verify-install.mjs   # 自检：清单、解析链、产物形态
 [dsh-translate] 引擎：微软翻译(免费端点) → Google 翻译(免费端点) → 模型(host-route) · 免费端点超时 8000ms · 路由 /dsh-translate/api
 ```
 
+## 诊断通道（真机取证）
+
+有些问题**只在真实 DOM 里复现**（"划词不弹卡片"、"卡片越出侧栏"），看代码只能猜。所以客户端在几个关键判定点把**观测值**上报给宿主：
+
+| 上报点 | 内容 |
+|---|---|
+| `pick` | 选区矩形、锚点元素摘要（标签+类名）、侧栏矩形 |
+| `pick-rejected` | 为什么没弹：有没有选区 / 是否塌陷 / 长度 / 元素 / `inSidebar` / `inPopup` / 侧栏矩形 |
+| `bounds` | 卡片边界来源：`panel`（侧栏）还是 `window`（退化），以及侧栏/视口矩形 |
+| `guest-pick` | 浏览器 tab 里取到的文本、合成后的宿主坐标、sessionId |
+
+宿主只保留**最近 20 条**（环形），不落盘、不写会话日志，通过 `GET /dsh-translate/api/health` 的 `diag` 字段读出来：
+
+```bash
+curl -s http://127.0.0.1:19387/dsh-translate/api/health | jq .diag
+```
+
+隐私边界：只送几何、布尔判定、标签名；文本最多前 24 个字符。上报失败一律吞掉，绝不影响翻译。
+
 ## 故障排查
 
 ### 卡片显示「宿主返回了无法解析的响应（HTTP 405）」

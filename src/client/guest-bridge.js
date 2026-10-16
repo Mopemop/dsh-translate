@@ -107,19 +107,24 @@ var GUEST_INSTALL_SCRIPT = [
   '    push("pick", { text: text, rect: range ? rectOf(range) : { left: 0, top: 0, width: 0, height: 0 } });',
   '  };',
   '  var timer = 0;',
-  '  var schedule = function () {',
+  '  var schedule = function (delay) {',
   '    if (timer) { try { clearTimeout(timer); } catch (error) { timer = 0; } }',
-  '    timer = setTimeout(read, 0);',
+  '    timer = setTimeout(read, typeof delay === "number" ? delay : 0);',
   '  };',
-  '  document.addEventListener("mouseup", schedule, true);',
+  // mouseup 用捕获阶段（外面元素吞事件也收得到）；但**拖出 webview 松手时 guest 里根本
+  // 不会有 mouseup**，所以还要靠下面的 selectionchange 延迟兜底
+  '  document.addEventListener("mouseup", function () { schedule(0); }, true);',
   '  document.addEventListener("keyup", function (event) {',
   '    if (event && event.key === "Escape") { if (had) push("clear", null); return; }',
-  '    schedule();',
+  '    schedule(0);',
   '  }, true);',
   '  document.addEventListener("selectionchange", function () {',
   '    var selection = null;',
   '    try { selection = window.getSelection(); } catch (error) { selection = null; }',
-  '    if (!selection || selection.isCollapsed === true) push("clear", null);',
+  '    if (!selection || selection.isCollapsed === true) { push("clear", null); return; }',
+  // 选区非空：等它安静 160ms 再读 —— 覆盖"鼠标拖到 webview 外才松手"这种收不到 mouseup 的情形。
+  // 同一段文本会被宿主去重，所以不会重复上报。
+  '    schedule(160);',
   '  }, true);',
   "  return 'installed';",
   '})()',
@@ -261,6 +266,7 @@ function createGuestBridge(options) {
       // 靠它 + webview 元素当前位置重新合成（见 anchor.js）
       var guestRect = flatRect(event.rect);
       var zoom = zoomFactorFor(element);
+      reportDiag('guest-pick', { text: limited.text, element: elementBrief(element), sessionId: sessionIdOf(element), rect: composeRect(elementRect(element), guestRect, zoom) });
       options.onPick({
         text: limited.text,
         truncated: limited.truncated === true,

@@ -143,6 +143,12 @@ return {
     ENGINE_CYCLE: ENGINE_CYCLE,
     ENGINE_LABELS: ENGINE_LABELS,
     DEFAULT_ENGINE: DEFAULT_ENGINE,
+    // 诊断上报（真机取证用）
+    DIAG_PATH: DIAG_PATH,
+    reportDiag: reportDiag,
+    digest: digest,
+    rectBrief: rectBrief,
+    elementBrief: elementBrief,
     REQUEST_TIMEOUT_MS: REQUEST_TIMEOUT_MS,
     LANGUAGE_LABELS: LANGUAGE_LABELS,
     SOURCE_LANGUAGES: SOURCE_LANGUAGES,
